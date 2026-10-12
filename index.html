@@ -35,7 +35,12 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 button:disabled { opacity: 0.45; cursor: default; }
 .icon-btn { width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 1.3rem; }
 
-#board { display: grid; gap: 8px; max-width: 360px; margin: 8px auto 14px; }
+.board-wrap { position: relative; max-width: 360px; margin: 8px auto 14px; }
+#board { display: grid; gap: 8px; }
+#guess {
+  position: absolute; left: 0; bottom: 0; width: 100%; height: 44px; padding: 0; border: 0;
+  opacity: 0; pointer-events: none; font-size: 16px; caret-color: transparent;
+}
 .row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
 .tile {
   aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
@@ -46,14 +51,13 @@ button:disabled { opacity: 0.45; cursor: default; }
 .tile.c1 { background: var(--yellow); }
 .tile.c2 { background: var(--green); }
 .row.active .tile { outline: 2px solid var(--accent); outline-offset: 1px; }
+.row.active .tile:empty { background: var(--surface); }
+.row.active .tile.cursor { box-shadow: inset 0 -5px 0 var(--accent); }
 
 .tile-hint { margin: 0 0 8px; color: var(--muted); font-size: 0.85rem; text-align: center; }
 .entry-row { display: flex; gap: 8px; }
-#guess {
-  flex: 1; min-width: 0; height: 48px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px;
-  background: var(--surface); color: var(--text); font-size: 1.25rem; font-weight: 600;
-  letter-spacing: 0.3em; text-transform: uppercase;
-}
+#edit { flex: none; width: 48px; height: 48px; }
+#next { flex: 1; }
 .primary { height: 48px; padding: 0 20px; border: 0; border-radius: 10px; background: var(--accent); color: var(--on-accent); font-weight: 600; }
 .hint { margin: 6px 0 0; color: var(--warn-text); font-size: 0.9rem; }
 .link { background: none; border: 0; padding: 6px 0; color: var(--accent); text-decoration: underline; }
@@ -108,12 +112,16 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
   <button id="settings-btn" class="icon-btn" type="button" aria-label="Settings">&#9881;&#xFE0E;</button>
 </header>
 <main>
-  <section id="board" aria-label="Guesses"></section>
+  <div class="board-wrap">
+    <section id="board" aria-label="Guesses"></section>
+    <!-- Invisible field over the active row: it brings up the phone keyboard; the tiles show what it holds. -->
+    <input id="guess" type="text" inputmode="text" enterkeyhint="next" autocomplete="off" autocorrect="off"
+           autocapitalize="characters" spellcheck="false" maxlength="5" aria-label="Guess you played">
+  </div>
   <section id="entry">
-    <p class="tile-hint">Tap tiles to set colours</p>
+    <p class="tile-hint">Tap letters to set colours · &#9998;&#xFE0E; to type</p>
     <div class="entry-row">
-      <input id="guess" type="text" inputmode="text" autocomplete="off" autocorrect="off"
-             autocapitalize="characters" spellcheck="false" maxlength="5" aria-label="Guess you played">
+      <button id="edit" class="icon-btn" type="button" aria-label="Type a word">&#9998;&#xFE0E;</button>
       <button id="next" class="primary" type="button">Next</button>
     </div>
     <p id="hint" class="hint" hidden>Not in word list</p>
@@ -616,6 +624,25 @@ self.onmessage = function (e) {
     return node;
   }
 
+  // The word in the row was put there by the app (opener or recommendation), not chosen or typed.
+  function isSuggested() {
+    const word = game.active.word;
+    return word !== '' && (word === autoFilled || (game.rows.length === 0 && word === settings.opener));
+  }
+
+  // Focus the invisible field, which brings up the phone keyboard. Must run inside a tap or key handler.
+  function startTyping(clearSuggestion) {
+    if (GameState.isSolved(game)) return;
+    if (clearSuggestion && isSuggested()) {
+      autoFilled = '';
+      useWord('');
+    }
+    const guess = $('guess');
+    guess.focus({ preventScroll: true });
+    guess.setSelectionRange(guess.value.length, guess.value.length);
+    render();
+  }
+
   function useWord(word) {
     game = GameState.setActiveWord(game, word);
     saveGame();
@@ -635,15 +662,24 @@ self.onmessage = function (e) {
     }
     if (solved) return;
     const r = el('div', 'row active');
+    const word = game.active.word;
+    const typing = document.activeElement === $('guess');
     game.active.colors.forEach((c, i) => {
-      const tile = el('button', `tile c${c}`, up(game.active.word[i] || ''));
+      const tile = el('button', `tile c${c}`, up(word[i] || ''));
       tile.type = 'button';
-      tile.setAttribute('aria-label', `Letter ${i + 1}, ${COLOR_NAMES[c]}. Tap to change.`);
-      tile.addEventListener('click', () => {
-        game = GameState.cycleColor(game, i);
-        saveGame();
-        render();
-      });
+      if (typing && i === word.length) tile.classList.add('cursor');
+      // Letters change colour; an empty tile is where the next letter goes, so it opens the keyboard.
+      if (i < word.length) {
+        tile.setAttribute('aria-label', `Letter ${i + 1}, ${COLOR_NAMES[c]}. Tap to change.`);
+        tile.addEventListener('click', () => {
+          game = GameState.cycleColor(game, i);
+          saveGame();
+          render();
+        });
+      } else {
+        tile.setAttribute('aria-label', `Letter ${i + 1}, empty. Tap to type.`);
+        tile.addEventListener('click', () => startTyping(false));
+      }
       r.append(tile);
     });
     board.append(r);
@@ -785,7 +821,7 @@ self.onmessage = function (e) {
     recompute();
   }
 
-  // Uppercase display comes from CSS; the box is only rewritten when characters were stripped.
+  // The field is only rewritten when characters were stripped, so the caret stays put while typing.
   function readGuess(input) {
     const clean = GameState.sanitizeWord(input.value);
     if (input.value.toLowerCase() !== clean) input.value = clean;
@@ -793,14 +829,27 @@ self.onmessage = function (e) {
   }
   $('guess').addEventListener('input', e => { if (!e.isComposing) readGuess(e.target); });
   $('guess').addEventListener('compositionend', e => readGuess(e.target));
-  // Enter submits from the page body, a tile or the guess box (tile clicks re-render and drop focus).
+  // Focus moving in or out of the field shows or hides the typing cursor on the active row.
+  $('guess').addEventListener('focus', render);
+  $('guess').addEventListener('blur', render);
+  $('edit').addEventListener('click', () => startTyping(true));
+  // Enter submits from the page body, a tile or the guess field (tile clicks re-render and drop focus).
+  // Letters and Backspace typed there go into the row, so a computer keyboard works without tapping first.
   document.addEventListener('keydown', e => {
-    if (e.key !== 'Enter' || e.isComposing || e.defaultPrevented) return;
+    if (e.isComposing || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
     if (document.querySelector('dialog[open]')) return;
     const t = e.target;
-    if (t !== document.body && t !== $('guess') && !(t.classList && t.classList.contains('tile'))) return;
-    e.preventDefault();
-    submit();
+    const onRow = t === document.body || (t.classList && t.classList.contains('tile'));
+    if (e.key === 'Enter' && (onRow || t === $('guess'))) {
+      e.preventDefault();
+      submit();
+    } else if (onRow && (/^[a-z]$/i.test(e.key) || e.key === 'Backspace')) {
+      e.preventDefault();
+      const letter = e.key !== 'Backspace';
+      startTyping(letter);
+      if (GameState.isSolved(game)) return;
+      useWord(letter ? game.active.word + e.key : game.active.word.slice(0, -1));
+    }
   });
   $('next').addEventListener('click', () => submit());
   $('solved').addEventListener('click', () => submit(GameState.solve));
