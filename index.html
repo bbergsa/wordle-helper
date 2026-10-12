@@ -55,6 +55,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   letter-spacing: 0.3em; text-transform: uppercase;
 }
 .primary { height: 48px; padding: 0 20px; border: 0; border-radius: 10px; background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.solve-btn { flex: none; width: 48px; height: 48px; padding: 0; border: 0; border-radius: 10px; background: var(--green); color: var(--tile-text); font-size: 1.4rem; font-weight: 700; }
 .hint { margin: 6px 0 0; color: var(--warn-text); font-size: 0.9rem; }
 .link { background: none; border: 0; padding: 6px 0; color: var(--accent); text-decoration: underline; }
 
@@ -113,6 +114,7 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
     <div class="entry-row">
       <input id="guess" type="text" inputmode="text" autocomplete="off" autocorrect="off"
              autocapitalize="characters" spellcheck="false" maxlength="5" aria-label="Guess you played">
+      <button id="solved" class="solve-btn" type="button" aria-label="This was the answer">&#10003;&#xFE0E;</button>
       <button id="next" class="primary" type="button">Next</button>
     </div>
     <p id="hint" class="hint" hidden>Not in word list</p>
@@ -429,6 +431,11 @@ self.onmessage = function (e) {
     return { rows: game.rows.concat([row]), active: { word: '', colors: greys() } };
   }
 
+  function solve(game) {
+    if (game.active.word.length !== 5) return game;
+    return commit({ rows: game.rows, active: { word: game.active.word, colors: [2, 2, 2, 2, 2] } });
+  }
+
   function undo(game) {
     if (game.rows.length === 0) return game;
     const last = game.rows[game.rows.length - 1];
@@ -464,7 +471,7 @@ self.onmessage = function (e) {
 
   const api = {
     MAX_AGE_MS, DEFAULT_SETTINGS, sanitizeWord, validateSettings, newGame, setActiveWord,
-    cycleColor, commit, undo, isSolved, needsDiscardConfirm, serialize, restore,
+    cycleColor, commit, solve, undo, isSolved, needsDiscardConfirm, serialize, restore,
   };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.GameState = api;
@@ -656,6 +663,7 @@ self.onmessage = function (e) {
     if (guess.value.toLowerCase() !== word) guess.value = up(word);
     const unknown = word.length === 5 && !ALLOWED.has(word);
     $('next').disabled = word.length !== 5;
+    $('solved').disabled = word.length !== 5;
     $('next').textContent = unknown ? 'Use anyway' : 'Next';
     $('hint').hidden = !unknown;
     const makeDefault = $('make-default');
@@ -759,9 +767,9 @@ self.onmessage = function (e) {
     renderResults(solved);
   }
 
-  function submit() {
+  function submit(step = GameState.commit) {
     if (GameState.isSolved(game) || game.active.word.length !== 5) return;
-    game = GameState.commit(game);
+    game = step(game);
     showAll = false;
     autoFilled = '';
     saveGame();
@@ -794,7 +802,8 @@ self.onmessage = function (e) {
     e.preventDefault();
     submit();
   });
-  $('next').addEventListener('click', submit);
+  $('next').addEventListener('click', () => submit());
+  $('solved').addEventListener('click', () => submit(GameState.solve));
   $('undo').addEventListener('click', () => {
     game = GameState.undo(game);
     autoFilled = '';
