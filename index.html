@@ -55,12 +55,12 @@ button:disabled { opacity: 0.45; cursor: default; }
   letter-spacing: 0.3em; text-transform: uppercase;
 }
 .primary { height: 48px; padding: 0 20px; border: 0; border-radius: 10px; background: var(--accent); color: var(--on-accent); font-weight: 600; }
-.solve-btn { flex: none; width: 48px; height: 48px; padding: 0; border: 0; border-radius: 10px; background: var(--green); color: var(--tile-text); font-size: 1.4rem; font-weight: 700; }
 .hint { margin: 6px 0 0; color: var(--warn-text); font-size: 0.9rem; }
 .link { background: none; border: 0; padding: 6px 0; color: var(--accent); text-decoration: underline; }
 
 .controls { display: flex; gap: 8px; margin: 12px 0; }
 .controls button { flex: 1; height: 44px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.controls .solve-btn { border-color: var(--green); background: var(--green); color: var(--tile-text); font-weight: 600; }
 
 .status { margin: 8px 0; color: var(--muted); text-align: center; }
 .status:empty { display: none; }
@@ -114,7 +114,6 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
     <div class="entry-row">
       <input id="guess" type="text" inputmode="text" autocomplete="off" autocorrect="off"
              autocapitalize="characters" spellcheck="false" maxlength="5" aria-label="Guess you played">
-      <button id="solved" class="solve-btn" type="button" aria-label="This was the answer">&#10003;&#xFE0E;</button>
       <button id="next" class="primary" type="button">Next</button>
     </div>
     <p id="hint" class="hint" hidden>Not in word list</p>
@@ -122,6 +121,7 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
   </section>
   <div class="controls">
     <button id="undo" type="button">Undo</button>
+    <button id="solved" class="solve-btn" type="button" aria-label="Solved: this was the answer">&#10003;&#xFE0E; Solved</button>
     <button id="new" type="button">New game</button>
   </div>
   <p id="status" class="status" role="status" aria-live="polite"></p>
