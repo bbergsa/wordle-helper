@@ -34,6 +34,8 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; }
 button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulation; }
 button:disabled { opacity: 0.45; cursor: default; }
 .icon-btn { width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 1.3rem; }
+.header-actions { display: flex; gap: 8px; }
+.icon-btn svg { display: block; margin: auto; }
 
 .board-wrap { position: relative; max-width: 360px; margin: 8px auto 14px; }
 #board { display: grid; gap: 8px; }
@@ -97,8 +99,29 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
 .field input { height: 44px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 1rem; }
 .check { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
 .check input { width: 20px; height: 20px; }
+.reset-stats { display: block; margin: 0 0 12px; }
+#stats-body { margin-bottom: 16px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .dialog-actions button:not(.primary) { height: 48px; padding: 0 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+
+.round { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 10px; }
+.round li { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; }
+.round li.round-note { display: block; color: var(--muted); }
+.mini-row { display: grid; grid-template-columns: repeat(5, 18px); gap: 2px; padding-top: 2px; }
+.tile.mini { width: 18px; border-radius: 3px; font-size: 0.65rem; }
+.round-text { margin: 0; font-size: 0.9rem; }
+.round-closing { margin: 10px 0 0; font-weight: 600; }
+.round-closing:empty { display: none; }
+.stats-head { margin: 8px 0 10px; font-variant-numeric: tabular-nums; }
+.stats-empty { margin: 8px 0 0; color: var(--muted); }
+.dist { display: grid; gap: 4px; }
+.dist-row { display: grid; grid-template-columns: 1.75em 1fr; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.dist-key { color: var(--muted); font-size: 0.85rem; text-align: right; }
+.dist-bar {
+  justify-self: start; min-width: 1.75em; padding: 2px 6px; border-radius: 4px;
+  background: var(--grey); color: var(--tile-text); font-size: 0.85rem; font-weight: 600; text-align: right;
+}
+.dist-row.mine .dist-bar { background: var(--green); }
 
 @media (max-width: 359px) {
   header, main { padding-left: 12px; padding-right: 12px; }
@@ -109,7 +132,10 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
 <body>
 <header>
   <h1>Five-Letter Solver</h1>
-  <button id="settings-btn" class="icon-btn" type="button" aria-label="Settings">&#9881;&#xFE0E;</button>
+  <div class="header-actions">
+    <button id="stats-btn" class="icon-btn" type="button" aria-label="Statistics"><svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3 17v-7h3v7zm5.5 0V4h3v13zM14 17v-5h3v5z"/></svg></button>
+    <button id="settings-btn" class="icon-btn" type="button" aria-label="Settings">&#9881;&#xFE0E;</button>
+  </div>
 </header>
 <main>
   <div class="board-wrap">
@@ -162,6 +188,17 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
       <div id="obscure" class="chips muted"></div>
     </details>
   </section>
+  <section id="summary" hidden>
+    <div class="card">
+      <div class="label">Round</div>
+      <ol id="round" class="round"></ol>
+      <p id="round-closing" class="round-closing"></p>
+    </div>
+    <div class="card">
+      <div class="label">Statistics</div>
+      <div id="summary-stats"></div>
+    </div>
+  </section>
 </main>
 <dialog id="settings">
   <form method="dialog" novalidate>
@@ -176,6 +213,7 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
       <input id="set-maxgap" type="number" min="0" max="1" step="0.01" inputmode="decimal">
     </label>
     <label class="check"><input id="set-extras" type="checkbox"> Include obscure fits in scoring</label>
+    <button id="reset-stats" class="link reset-stats" type="button">Reset statistics</button>
     <div class="dialog-actions">
       <button value="cancel" type="button" data-cancel>Cancel</button>
       <button value="save" type="submit" class="primary">Save</button>
@@ -184,10 +222,19 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
 </dialog>
 <dialog id="confirm">
   <form method="dialog">
-    <p>Discard this game?</p>
+    <p id="confirm-msg"></p>
     <div class="dialog-actions">
       <button value="cancel" type="button" data-cancel>Cancel</button>
-      <button value="discard" type="submit" class="primary">Discard</button>
+      <button id="confirm-ok" value="ok" type="submit" class="primary"></button>
+    </div>
+  </form>
+</dialog>
+<dialog id="stats">
+  <form method="dialog">
+    <h2>Statistics</h2>
+    <div id="stats-body"></div>
+    <div class="dialog-actions">
+      <button value="close" type="submit" class="primary">Close</button>
     </div>
   </form>
 </dialog>
@@ -200,6 +247,7 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
   const ALL_GREEN = 242;
   const EPS = 1e-9;
   const SPLITTERS = 3;
+  const MATCH_EPS = 0.0005;
 
   // Letter codes 0-25, five per word.
   function encode(words) {
@@ -285,6 +333,26 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
     return { expected: sum / n, outcomes, worst };
   }
 
+  // Expected number of pool words left after the guess (the answer included): sum of k² / n.
+  function avgLeft(guess, pool) {
+    const n = pool.length;
+    if (n === 0) return 0;
+    const G = encode([guess]), P = encode(pool);
+    buckets.fill(0);
+    for (let j = 0; j < n; j++) buckets[patternAt(G, 0, P, j * 5)]++;
+    let squares = 0;
+    for (let p = 0; p < 243; p++) squares += buckets[p] * buckets[p];
+    return squares / n;
+  }
+
+  // 'lucky' / 'unlucky' when the words left differ from the average by a factor of two.
+  function luck(n, left, avg) {
+    if (n < 3 || left === 0) return null;
+    if (left <= avg / 2) return 'lucky';
+    if (left >= avg * 2) return 'unlucky';
+    return null;
+  }
+
   function createSolver(lists) {
     const { answers, allowed, common, extras } = lists;
     const answerSet = new Set(answers);
@@ -326,18 +394,23 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
       return top;
     }
 
+    // The words still possible after the rows, and which of them are scored.
+    function pools(rows, includeExtras) {
+      const mainWords = filter(answers, rows);
+      const widerWords = filter(extras, rows);
+      if (mainWords.length === 0 && widerWords.length === 0) return { mainWords, widerWords, pool: [], source: 'none' };
+      if (mainWords.length === 0) return { mainWords, widerWords, pool: widerWords, source: 'wider' };
+      if (includeExtras) return { mainWords, widerWords, pool: mainWords.concat(widerWords), source: 'main+wider' };
+      return { mainWords, widerWords, pool: mainWords, source: 'main' };
+    }
+
     function analyze(rows, opts) {
       const includeExtras = !!(opts && opts.includeExtras);
       const known = (opts && opts.known) || null;
-      const mainWords = filter(answers, rows);
-      const widerWords = filter(extras, rows);
-      if (mainWords.length === 0 && widerWords.length === 0) {
-        return { main: [], wider: [], source: 'none', n: 0, s: null, splitters: [], c: null, sInPool: false };
+      const { mainWords, widerWords, pool, source } = pools(rows, includeExtras);
+      if (source === 'none') {
+        return { main: [], wider: [], source, n: 0, s: null, splitters: [], c: null, sInPool: false };
       }
-      let pool, source;
-      if (mainWords.length === 0) { pool = widerWords; source = 'wider'; }
-      else if (includeExtras) { pool = mainWords.concat(widerWords); source = 'main+wider'; }
-      else { pool = mainWords; source = 'main'; }
       const poolSet = new Set(pool);
       const ranked = rank(mainWords.concat(widerWords), pool);
       const c = ranked.find(x => poolSet.has(x.word));
@@ -355,7 +428,51 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
       };
     }
 
-    return { score, rank, topGuesses, analyze };
+    // Replays a game: for each row, how far it narrowed the pool and how it compared with
+    // the solver's pick. Row 1 is not judged (the pick there is just the opener setting), so
+    // the full-list scan never runs; nor is a final row with one word left.
+    function review(rows, settings) {
+      const includeExtras = !!settings.includeExtras;
+      const lines = [];
+      let matched = 0, judged = 0;
+      for (let i = 0; i < rows.length; i++) {
+        const word = rows[i].word;
+        const before = rows.slice(0, i);
+        const pool = pools(before, includeExtras).pool;
+        const n = pool.length;
+        const line = {
+          word, colors: patternToColors(rows[i].pattern), n, left: null, avgLeft: null, pick: null,
+          pickAvgLeft: null, verdict: null, luck: null, final: null, noFit: n === 0, usual: null, usualAvgLeft: null,
+        };
+        lines.push(line);
+        if (n === 0) continue;
+        line.avgLeft = avgLeft(word, pool);
+        if (rows[i].pattern === ALL_GREEN) {
+          line.final = !pool.includes(word) ? 'outside' : n === 1 ? 'only' : 'shot';
+        } else {
+          line.left = pools(rows.slice(0, i + 1), includeExtras).pool.length;
+          line.luck = luck(n, line.left, line.avgLeft);
+        }
+        if (i === 0) {
+          if (word !== settings.opener) {
+            line.usual = settings.opener;
+            line.usualAvgLeft = avgLeft(settings.opener, pool);
+          }
+          continue;
+        }
+        if (line.final && n === 1) continue;
+        const pick = recommend(analyze(before, { includeExtras }), settings).score;
+        const diff = score(word, pool).expected - pick.expected;
+        line.pick = pick.word;
+        line.pickAvgLeft = avgLeft(pick.word, pool);
+        line.verdict = word === pick.word || Math.abs(diff) <= MATCH_EPS ? 'pick' : diff < 0 ? 'sharper' : 'worse';
+        judged++;
+        if (line.verdict !== 'worse') matched++;
+      }
+      return { lines, matched, judged };
+    }
+
+    return { score, rank, topGuesses, analyze, review };
   }
 
   // s = best splitter, c = best guess that could be the answer.
@@ -370,7 +487,7 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
 
   const api = {
     ALL_GREEN, encode, patternAt, pattern, colorsToPattern, patternToColors, filter,
-    createSolver, recommend,
+    avgLeft, luck, createSolver, recommend,
   };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.Solver = api;
@@ -384,8 +501,8 @@ self.onmessage = function (e) {
   const msg = e.data;
   if (msg.type === 'init') {
     solver = Solver.createSolver(msg.lists);
-  } else if (msg.type === 'analyze') {
-    self.postMessage({ id: msg.id, analysis: solver.analyze(msg.rows, msg.opts) });
+  } else if (msg.type === 'analyze' || msg.type === 'review') {
+    self.postMessage({ id: msg.id, result: solver[msg.type](msg.rows, msg.opts) });
   }
 };
 </script>
@@ -419,35 +536,35 @@ self.onmessage = function (e) {
     return out;
   }
 
-  function newGame(opener) {
-    return { rows: [], active: { word: opener, colors: greys() } };
+  function newGame(opener, id) {
+    return { id, rows: [], active: { word: opener, colors: greys() } };
   }
 
   function setActiveWord(game, text) {
-    return { rows: game.rows, active: { word: sanitizeWord(text), colors: game.active.colors } };
+    return { id: game.id, rows: game.rows, active: { word: sanitizeWord(text), colors: game.active.colors } };
   }
 
   function cycleColor(game, i) {
     const colors = game.active.colors.slice();
     colors[i] = (colors[i] + 1) % 3;
-    return { rows: game.rows, active: { word: game.active.word, colors } };
+    return { id: game.id, rows: game.rows, active: { word: game.active.word, colors } };
   }
 
   function commit(game) {
     if (game.active.word.length !== 5) return game;
     const row = { word: game.active.word, colors: game.active.colors.slice() };
-    return { rows: game.rows.concat([row]), active: { word: '', colors: greys() } };
+    return { id: game.id, rows: game.rows.concat([row]), active: { word: '', colors: greys() } };
   }
 
   function solve(game) {
     if (game.active.word.length !== 5) return game;
-    return commit({ rows: game.rows, active: { word: game.active.word, colors: [2, 2, 2, 2, 2] } });
+    return commit({ id: game.id, rows: game.rows, active: { word: game.active.word, colors: [2, 2, 2, 2, 2] } });
   }
 
   function undo(game) {
     if (game.rows.length === 0) return game;
     const last = game.rows[game.rows.length - 1];
-    return { rows: game.rows.slice(0, -1), active: { word: last.word, colors: last.colors.slice() } };
+    return { id: game.id, rows: game.rows.slice(0, -1), active: { word: last.word, colors: last.colors.slice() } };
   }
 
   function isSolved(game) {
@@ -460,7 +577,7 @@ self.onmessage = function (e) {
   }
 
   function serialize(game, now) {
-    return JSON.stringify({ v: 1, savedAt: now, rows: game.rows, active: game.active });
+    return JSON.stringify({ v: 1, savedAt: now, id: game.id, rows: game.rows, active: game.active });
   }
 
   function restore(json, now) {
@@ -472,6 +589,7 @@ self.onmessage = function (e) {
     const activeOk = typeof d.active.word === 'string' && /^[a-z]{0,5}$/.test(d.active.word) && validColors(d.active.colors);
     if (!rowsOk || !activeOk) return null;
     return {
+      id: Number.isFinite(d.id) ? d.id : now,
       rows: d.rows.map(r => ({ word: r.word, colors: r.colors.slice() })),
       active: { word: d.active.word, colors: d.active.colors.slice() },
     };
@@ -485,8 +603,114 @@ self.onmessage = function (e) {
   else root.GameState = api;
 })(typeof self !== 'undefined' ? self : this);
 </script>
-<script>// UI for the Five-Letter Solver page. Uses Solver (solver.js) and GameState (state.js).
-/* global Solver, GameState */
+<script>// Solved-game history and the statistics drawn from it. Pure functions; loaded as a classic
+// script in the page (defines GameHistory) and via require() in Node tests.
+(function (root) {
+  'use strict';
+
+  const LIMIT = 1000;
+  const BUCKETS = ['1', '2', '3', '4', '5', '6', '7+'];
+  const validColors = c => Array.isArray(c) && c.length === 5 && c.every(x => x === 0 || x === 1 || x === 2);
+  const validRow = r => r && typeof r.word === 'string' && /^[a-z]{5}$/.test(r.word) && validColors(r.colors);
+  const validGame = g => g && Number.isFinite(g.id) && Number.isFinite(g.at) &&
+    Array.isArray(g.rows) && g.rows.length > 0 && g.rows.every(validRow);
+  const copyGame = g => ({ id: g.id, at: g.at, rows: g.rows.map(r => ({ word: r.word, colors: r.colors.slice() })) });
+
+  function empty() {
+    return { v: 1, games: [] };
+  }
+
+  // Anything unreadable counts as no history; single bad records are dropped.
+  function parse(json) {
+    let d;
+    try { d = JSON.parse(json); } catch (e) { return empty(); }
+    if (!d || d.v !== 1 || !Array.isArray(d.games)) return empty();
+    return { v: 1, games: d.games.filter(validGame).map(copyGame).slice(-LIMIT) };
+  }
+
+  function serialize(history) {
+    return JSON.stringify(history);
+  }
+
+  // Adds a solved game, replacing an earlier record with the same id; keeps the newest LIMIT.
+  function record(history, game) {
+    const games = history.games.filter(g => g.id !== game.id).concat([copyGame(game)]);
+    return { v: 1, games: games.slice(-LIMIT) };
+  }
+
+  function remove(history, id) {
+    return { v: 1, games: history.games.filter(g => g.id !== id) };
+  }
+
+  // The distribution key for a game solved in this many guesses.
+  function bucket(guesses) {
+    return guesses >= 7 ? '7+' : String(guesses);
+  }
+
+  function stats(history) {
+    const dist = {};
+    for (const key of BUCKETS) dist[key] = 0;
+    let total = 0;
+    for (const g of history.games) {
+      dist[bucket(g.rows.length)]++;
+      total += g.rows.length;
+    }
+    const played = history.games.length;
+    return { played, average: played ? total / played : null, dist };
+  }
+
+  const api = { LIMIT, BUCKETS, empty, parse, serialize, record, remove, bucket, stats };
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.GameHistory = api;
+})(typeof self !== 'undefined' ? self : this);
+</script>
+<script>// Wording for the round review. Pure; loaded as a classic script in the page (defines Summary)
+// and via require() in Node tests.
+(function (root) {
+  'use strict';
+
+  const up = word => word.toUpperCase();
+  const num = k => k.toLocaleString('en-US');
+  const count = (k, one, many) => `${num(k)} ${k === 1 ? one : many}`;
+  // Whole numbers (with separators) from 9.95 up, where one decimal would round to 10.0; one decimal below.
+  const avg = x => (x >= 9.95 ? num(Math.round(x)) : x.toFixed(1));
+
+  const FINAL = {
+    only: () => 'Solved — the only word left.',
+    shot: l => `Solved — a 1-in-${num(l.n)} shot.`,
+    outside: () => 'Solved (wasn’t in the candidate list).',
+  };
+  const VERDICT = {
+    pick: l => `Solver’s pick (avg ${avg(l.avgLeft)} left).`,
+    sharper: l => `Sharper than the solver’s pick ${up(l.pick)} (avg ${avg(l.avgLeft)} left vs ${avg(l.pickAvgLeft)}).`,
+    worse: l => `Solver: ${up(l.pick)} (avg ${avg(l.pickAvgLeft)} left vs your ${avg(l.avgLeft)}).`,
+  };
+
+  // One review line (from Solver review) as a sentence or three.
+  function lineText(l) {
+    if (l.noFit) return 'No word fit here — a tile may be misread.';
+    const parts = [];
+    if (l.final) parts.push(FINAL[l.final](l));
+    else if (l.verdict) parts.push(`${num(l.n)} → ${count(l.left, 'word', 'words')}.`);
+    else parts.push(`${num(l.n)} → ${count(l.left, 'word', 'words')} (avg ${avg(l.avgLeft)} left).`);
+    if (l.verdict) parts.push(VERDICT[l.verdict](l));
+    if (l.usual) parts.push(`Your usual: ${up(l.usual)} (avg ${avg(l.usualAvgLeft)}).`);
+    if (l.luck) parts.push(l.luck === 'lucky' ? 'Lucky.' : 'Unlucky.');
+    return parts.join(' ');
+  }
+
+  function closingText(review) {
+    if (review.judged === 0) return '';
+    return `You matched the solver on ${review.matched} of ${count(review.judged, 'guess', 'guesses')}.`;
+  }
+
+  const api = { lineText, closingText };
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.Summary = api;
+})(typeof self !== 'undefined' ? self : this);
+</script>
+<script>// UI for the Five-Letter Solver page. Uses Solver (solver.js), GameState (state.js), GameHistory (history.js) and Summary (summary.js).
+/* global Solver, GameState, GameHistory, Summary */
 (function () {
   'use strict';
 
@@ -498,7 +722,7 @@ self.onmessage = function (e) {
   const TABLE = DATA.table;
   const CHIP_LIMIT = 40;
   const COLOR_NAMES = ['grey', 'yellow', 'green'];
-  const KEYS = { settings: 'fls.settings', game: 'fls.game' };
+  const KEYS = { settings: 'fls.settings', game: 'fls.game', history: 'fls.history' };
 
   const store = {
     get(key) { try { return localStorage.getItem(key); } catch (e) { return null; } },
@@ -512,8 +736,10 @@ self.onmessage = function (e) {
   }
 
   let settings = loadSettings();
-  let game = GameState.restore(store.get(KEYS.game), Date.now()) || GameState.newGame(settings.opener);
+  let game = GameState.restore(store.get(KEYS.game), Date.now()) || GameState.newGame(settings.opener, Date.now());
   let analysis = null;
+  let roundReview = null;
+  let history = GameHistory.parse(store.get(KEYS.history));
   let thinking = false;
   let latest = 0;
   let showAll = false;
@@ -523,15 +749,21 @@ self.onmessage = function (e) {
 
   const saveGame = () => store.set(KEYS.game, GameState.serialize(game, Date.now()));
   const saveSettings = () => store.set(KEYS.settings, JSON.stringify(settings));
+  const saveHistory = () => store.set(KEYS.history, GameHistory.serialize(history));
+  // Another tab or instance may have saved games since this page loaded, so every change and
+  // every read of the statistics starts from what is stored now.
+  const loadHistory = () => GameHistory.parse(store.get(KEYS.history));
+  function changeHistory(fn) { history = fn(loadHistory()); saveHistory(); }
   const up = word => word.toUpperCase();
   const fmt = sc => `${sc.expected.toFixed(3)} expected · ${sc.outcomes} outcomes · worst ${sc.worst}`;
 
   // Scoring runs in a Worker built from the inline sources; falls back to this thread.
+  // Jobs are 'analyze' (live recommendations) and 'review' (the solved round).
   function makeEngine() {
     let local = null;
-    const runLocal = (rows, opts) => {
+    const runLocal = (type, rows, opts) => {
       if (!local) local = Solver.createSolver(LISTS);
-      return local.analyze(rows, opts);
+      return local[type](rows, opts);
     };
     const waiting = new Map();
     let worker = null;
@@ -544,7 +776,7 @@ self.onmessage = function (e) {
       const newest = Math.max(0, ...waiting.keys());
       for (const [id, job] of waiting) {
         if (id !== newest) { job.resolve(null); continue; }
-        try { job.resolve(runLocal(job.rows, job.opts)); } catch (err) { job.reject(err); }
+        try { job.resolve(runLocal(job.type, job.rows, job.opts)); } catch (err) { job.reject(err); }
       }
       waiting.clear();
     }
@@ -554,7 +786,7 @@ self.onmessage = function (e) {
       worker = new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
       worker.onmessage = e => {
         const job = waiting.get(e.data.id);
-        if (job) { waiting.delete(e.data.id); job.resolve(e.data.analysis); }
+        if (job) { waiting.delete(e.data.id); job.resolve(e.data.result); }
       };
       worker.onerror = fallBack;
       worker.postMessage({ type: 'init', lists: LISTS });
@@ -564,15 +796,15 @@ self.onmessage = function (e) {
     }
 
     return {
-      analyze(rows, opts) {
+      run(type, rows, opts) {
         return new Promise((resolve, reject) => {
           if (!worker) {
-            setTimeout(() => { try { resolve(runLocal(rows, opts)); } catch (err) { reject(err); } }, 30);
+            setTimeout(() => { try { resolve(runLocal(type, rows, opts)); } catch (err) { reject(err); } }, 30);
             return;
           }
           const id = ++nextId;
-          waiting.set(id, { resolve, reject, rows, opts });
-          worker.postMessage({ type: 'analyze', id, rows, opts });
+          waiting.set(id, { resolve, reject, type, rows, opts });
+          worker.postMessage({ type, id, rows, opts });
         });
       },
     };
@@ -587,19 +819,30 @@ self.onmessage = function (e) {
     return TABLE.entries[rows[0].pattern] || null;
   }
 
+  // Mid-game this analyses the position; once solved it reviews the round instead.
   function recompute() {
     const rows = solverRows();
     const id = ++latest;
+    const solved = GameState.isSolved(game);
     analysis = null;
+    roundReview = null;
     failed = false;
-    thinking = rows.length > 0 && !GameState.isSolved(game);
+    thinking = rows.length > 0;
     render();
     if (!thinking) return;
-    engine.analyze(rows, { includeExtras: settings.includeExtras, known: knownFor(rows) }).then(result => {
+    const job = solved
+      ? engine.run('review', rows, settings)
+      : engine.run('analyze', rows, { includeExtras: settings.includeExtras, known: knownFor(rows) });
+    job.then(result => {
       if (id !== latest) return;
-      if (!result) throw new Error('no analysis result');
-      analysis = result;
+      if (!result) throw new Error('no result');
       thinking = false;
+      if (solved) {
+        roundReview = result;
+        render();
+        return;
+      }
+      analysis = result;
       const rec = Solver.recommend(result, settings);
       // Replace an empty guess, or one we filled in ourselves earlier (settings may have changed).
       if (rec && (game.active.word === '' || game.active.word === autoFilled)) {
@@ -737,6 +980,56 @@ self.onmessage = function (e) {
     }));
   }
 
+  function renderRound() {
+    const box = $('round');
+    if (!roundReview) {
+      box.replaceChildren(el('li', 'round-note', failed ? 'Couldn’t review this round.' : 'Reviewing…'));
+      $('round-closing').textContent = '';
+      return;
+    }
+    box.replaceChildren(...roundReview.lines.map(line => {
+      const item = el('li');
+      const tiles = el('div', 'mini-row');
+      tiles.setAttribute('aria-label', `${up(line.word)}: ${line.colors.map(c => COLOR_NAMES[c]).join(', ')}`);
+      line.colors.forEach((c, i) => {
+        const tile = el('span', `tile mini c${c}`, up(line.word[i]));
+        tile.setAttribute('aria-hidden', 'true');
+        tiles.append(tile);
+      });
+      item.append(tiles, el('p', 'round-text', Summary.lineText(line)));
+      return item;
+    }));
+    $('round-closing').textContent = Summary.closingText(roundReview);
+  }
+
+  // Played, average and a bar per guess count; the bar for `guesses` (if given) is highlighted.
+  function renderStats(box, guesses) {
+    history = loadHistory();
+    const s = GameHistory.stats(history);
+    if (s.played === 0) {
+      box.replaceChildren(el('p', 'stats-empty', 'No games yet.'));
+      return;
+    }
+    const max = Math.max(...GameHistory.BUCKETS.map(key => s.dist[key]));
+    const mine = guesses ? GameHistory.bucket(guesses) : null;
+    const bars = el('div', 'dist');
+    for (const key of GameHistory.BUCKETS) {
+      if (key === '7+' && s.dist[key] === 0) continue;
+      const row = el('div', key === mine ? 'dist-row mine' : 'dist-row');
+      const bar = el('span', 'dist-bar', String(s.dist[key]));
+      bar.style.width = `${(s.dist[key] / max) * 100}%`;
+      const n = s.dist[key];
+      const what = key === '7+' ? '7 or more guesses' : `${key} ${key === '1' ? 'guess' : 'guesses'}`;
+      row.setAttribute('aria-label', `${what}: ${n} ${n === 1 ? 'game' : 'games'}`);
+      const label = el('span', 'dist-key', key);
+      label.setAttribute('aria-hidden', 'true');
+      bar.setAttribute('aria-hidden', 'true');
+      row.append(label, bar);
+      bars.append(row);
+    }
+    box.replaceChildren(el('p', 'stats-head', `Played ${s.played} · Avg ${s.average.toFixed(2)}`), bars);
+  }
+
   function renderResults(solved) {
     const status = $('status'), banner = $('banner'), results = $('results');
     document.body.classList.toggle('thinking', thinking);
@@ -744,10 +1037,13 @@ self.onmessage = function (e) {
     banner.className = 'banner';
     banner.hidden = true;
     results.hidden = true;
+    $('summary').hidden = !solved;
 
     if (solved) {
       status.textContent = `Solved in ${game.rows.length}.`;
       status.classList.add('solved');
+      renderRound();
+      renderStats($('summary-stats'), game.rows.length);
       return;
     }
     if (game.rows.length === 0) {
@@ -806,6 +1102,9 @@ self.onmessage = function (e) {
   function submit(step = GameState.commit) {
     if (GameState.isSolved(game) || game.active.word.length !== 5) return;
     game = step(game);
+    if (GameState.isSolved(game)) {
+      changeHistory(h => GameHistory.record(h, { id: game.id, at: Date.now(), rows: game.rows }));
+    }
     showAll = false;
     autoFilled = '';
     saveGame();
@@ -814,7 +1113,7 @@ self.onmessage = function (e) {
   }
 
   function resetGame() {
-    game = GameState.newGame(settings.opener);
+    game = GameState.newGame(settings.opener, Date.now());
     showAll = false;
     autoFilled = '';
     saveGame();
@@ -854,22 +1153,47 @@ self.onmessage = function (e) {
   $('next').addEventListener('click', () => submit());
   $('solved').addEventListener('click', () => submit(GameState.solve));
   $('undo').addEventListener('click', () => {
+    // Undoing a solve takes the game back out of the statistics; solving again re-records it.
+    if (GameState.isSolved(game)) {
+      changeHistory(h => GameHistory.remove(h, game.id));
+    }
     game = GameState.undo(game);
     autoFilled = '';
     saveGame();
     recompute();
   });
-  $('new').addEventListener('click', () => {
-    if (!GameState.needsDiscardConfirm(game)) { resetGame(); return; }
+  // One confirm dialog for every "are you sure": message, button label and what to do on OK.
+  let onConfirm = null;
+  function askConfirm(message, label, action) {
+    $('confirm-msg').textContent = message;
+    $('confirm-ok').textContent = label;
+    onConfirm = action;
     $('confirm').returnValue = '';
     $('confirm').showModal();
+  }
+  $('confirm').addEventListener('close', () => {
+    const action = onConfirm;
+    onConfirm = null;
+    if ($('confirm').returnValue === 'ok' && action) action();
+  });
+  $('new').addEventListener('click', () => {
+    if (!GameState.needsDiscardConfirm(game)) { resetGame(); return; }
+    askConfirm('Discard this game?', 'Discard', resetGame);
+  });
+  $('stats-btn').addEventListener('click', () => {
+    renderStats($('stats-body'), GameState.isSolved(game) ? game.rows.length : null);
+    $('stats').showModal();
+  });
+  // Opens over the settings dialog, which stays open behind it.
+  $('reset-stats').addEventListener('click', () => {
+    askConfirm('Reset statistics?', 'Reset', () => {
+      changeHistory(() => GameHistory.empty());
+      render();
+    });
   });
   for (const cancel of document.querySelectorAll('dialog [data-cancel]')) {
     cancel.addEventListener('click', () => cancel.closest('dialog').close('cancel'));
   }
-  $('confirm').addEventListener('close', () => {
-    if ($('confirm').returnValue === 'discard') resetGame();
-  });
   $('make-default').addEventListener('click', () => {
     settings = GameState.validateSettings({ opener: defaultCandidate() }, settings);
     saveSettings();
